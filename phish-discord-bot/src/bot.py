@@ -70,7 +70,19 @@ async def fetch_latest_setlist(band='phish', last_song_only=False, return_raw=Fa
                     
                     # Parse the date text which is in format "PHISH, DAY MM/DD/YYYY"
                     date_text = date_span.text.strip()
-                    date = date_text.split(',')[1].strip() if ',' in date_text else date_text
+                    # Extract raw date
+                    date_raw = date_text.split(',')[1].strip() if ',' in date_text else date_text
+                    # Format date (capitalize day and format month name)
+                    parts = date_raw.split(' ', 1)
+                    if len(parts) == 2:
+                        day = parts[0].capitalize()
+                        try:
+                            dt = datetime.strptime(parts[1], "%m/%d/%Y")
+                            date = f"{day}, {dt.strftime('%B %d, %Y')}"
+                        except ValueError:
+                            date = f"{day} {parts[1]}"
+                    else:
+                        date = date_raw
                     
                     # Try to find venue information
                     venue_heading = setlist_div.find('h4')
@@ -98,21 +110,23 @@ async def fetch_latest_setlist(band='phish', last_song_only=False, return_raw=Fa
                     # For each label, extract the text until the next label or end
                     for i, match in enumerate(label_matches):
                         label_text = match.group(1).strip()
-                        if label_text in setlist_dict:
-                            continue  # Only first occurrence
+                        # Normalize set label capitalization ("SET 1" -> "Set 1", "ENCORE" -> "Encore")
+                        norm_label = label_text.title()
+                        if norm_label in setlist_dict:
+                            continue  # Only first occurrence of each set label
                         start = match.end()
                         end = label_matches[i+1].start() if i+1 < len(label_matches) else len(full_text)
-                        # Get the text between this label and the next
+                        # Extract the raw songs HTML and strip tags
                         songs_html = full_text[start:end]
-                        # Remove HTML tags and extra whitespace
-                        songs_text = re.sub('<.*?>', '', songs_html)
-                        songs_text = songs_text.replace('&gt;', '>').replace('&amp;', '&')
-                        songs_text = ', '.join([s.strip() for s in songs_text.split(',')])
-                        songs_text = ' '.join(songs_text.split()).strip(' :')
-                        if songs_text:
-                            setlist_dict[label_text] = songs_text
-                            set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
-                            all_songs.extend(set_songs)
+                        raw = re.sub('<.*?>', '', songs_html)
+                        raw = raw.replace('&gt;', '>').replace('&amp;', '&')
+                        # Split songs on commas, arrows (->), or greater-than (>)
+                        parts = [s.strip() for s in re.split(r'\s*->\s*|\s*>\s*|,\s*', raw) if s.strip()]
+                        # Reconstruct songs text
+                        songs_text = ', '.join(parts)
+                        if parts:
+                            setlist_dict[norm_label] = songs_text
+                            all_songs.extend(parts)
                 # Order: SET 1, SET 2, ... ENCORE
                 setlist_text = [f"{label}: {setlist_dict[label]}" for label in setlist_dict]
                 # Remove duplicate songs while preserving order
