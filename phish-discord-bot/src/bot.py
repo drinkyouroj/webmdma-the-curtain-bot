@@ -78,13 +78,15 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                 
                 # Extract setlist content: process each <p> with a set-label only once
                 print("Looking for setlist content...")
-                setlist_text = []
+                setlist_dict = {}  # label_text -> songs_text
                 all_songs = []
                 set_paragraphs = setlist_div.find_all('p')
                 for p in set_paragraphs:
                     label_span = p.find('span', class_='set-label')
                     if label_span:
                         label_text = label_span.text.strip()
+                        if label_text in setlist_dict:
+                            continue  # Only keep the first occurrence of each set label
                         # The rest of the text in <p> after the set label is the setlist
                         full_text = p.get_text(separator=' ', strip=True)
                         # Remove the label from the text
@@ -93,13 +95,12 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                         songs_text = ', '.join([s.strip() for s in songs_text.split(',')])
                         songs_text = ' '.join(songs_text.split())
                         if songs_text:
-                            setlist_text.append(f"{label_text}: {songs_text}")
+                            setlist_dict[label_text] = songs_text
                             set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
                             all_songs.extend(set_songs)
-                
-                # Remove duplicates while preserving order
-                seen = set()
-                setlist_text = [x for x in setlist_text if not (x in seen or seen.add(x))]
+                # Order: SET 1, SET 2, ... ENCORE
+                setlist_text = [f"{label}: {setlist_dict[label]}" for label in setlist_dict]
+                # Remove duplicate songs while preserving order
                 all_songs = [x for i, x in enumerate(all_songs) if x not in all_songs[:i]]
                 
                 if not setlist_text:
