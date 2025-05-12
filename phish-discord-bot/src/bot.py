@@ -78,22 +78,33 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                 
                 # Extract setlist content: process each <p> with a set-label only once
                 print("Looking for setlist content...")
+                import re
                 setlist_dict = {}  # label_text -> songs_text
                 all_songs = []
                 set_paragraphs = setlist_div.find_all('p')
                 for p in set_paragraphs:
-                    label_span = p.find('span', class_='set-label')
-                    if label_span:
-                        label_text = label_span.text.strip()
+                    # Find all set-label spans in this paragraph
+                    labels = p.find_all('span', class_='set-label')
+                    if not labels:
+                        continue
+                    # Get the full text of the paragraph, with labels as markers
+                    full_text = p.decode_contents()
+                    # Find all set-labels and their positions
+                    label_matches = list(re.finditer(r'<span class="set-label">(.*?)</span>', full_text))
+                    # For each label, extract the text until the next label or end
+                    for i, match in enumerate(label_matches):
+                        label_text = match.group(1).strip()
                         if label_text in setlist_dict:
-                            continue  # Only keep the first occurrence of each set label
-                        # The rest of the text in <p> after the set label is the setlist
-                        full_text = p.get_text(separator=' ', strip=True)
-                        # Remove the label from the text
-                        songs_text = full_text.replace(label_text, '', 1).strip(' :')
-                        # Clean up whitespace and commas
+                            continue  # Only first occurrence
+                        start = match.end()
+                        end = label_matches[i+1].start() if i+1 < len(label_matches) else len(full_text)
+                        # Get the text between this label and the next
+                        songs_html = full_text[start:end]
+                        # Remove HTML tags and extra whitespace
+                        songs_text = re.sub('<.*?>', '', songs_html)
+                        songs_text = songs_text.replace('&gt;', '>').replace('&amp;', '&')
                         songs_text = ', '.join([s.strip() for s in songs_text.split(',')])
-                        songs_text = ' '.join(songs_text.split())
+                        songs_text = ' '.join(songs_text.split()).strip(' :')
                         if songs_text:
                             setlist_dict[label_text] = songs_text
                             set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
