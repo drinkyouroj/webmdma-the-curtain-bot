@@ -56,7 +56,7 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                                 print(f"- {' '.join(div.get('class'))}")
                         return f"No recent setlist found for {band}."
                     
-                    # Extract date
+                    # Extract date and venue
                     print("Looking for date and venue...")
                     date_span = setlist_div.find('span', class_='setlist-date')
                     
@@ -68,8 +68,13 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                     date_text = date_span.text.strip()
                     date = date_text.split(',')[1].strip() if ',' in date_text else date_text
                     
-                    # For now, we'll skip venue as it seems to be in a different format
-                    venue = ""  # We can enhance this later
+                    # Try to find venue information
+                    venue_heading = setlist_div.find('h4')
+                    venue = ""
+                    if venue_heading:
+                        venue_text = venue_heading.text.strip()
+                        if '@' in venue_text:
+                            venue = venue_text.split('@')[1].strip()
                 
                 # Extract setlist content using set labels
                 print("Looking for setlist content...")
@@ -77,17 +82,27 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                 
                 setlist_text = []
                 all_songs = []
+                processed_sets = set()  # Keep track of which sets we've processed
                 
                 if set_labels:
                     # For each set label (SET 1, SET 2, ENCORE, etc.)
                     for label in set_labels:
+                        label_text = label.text.strip()
+                        if label_text in processed_sets:
+                            continue  # Skip if we've already processed this set
+                        
+                        processed_sets.add(label_text)
                         # The set label's parent element should contain the songs
                         set_content = label.find_parent()
                         if set_content:
-                            # Get all text after the set label
-                            songs_text = set_content.text.replace(label.text, '').strip()
+                            # Get all text after the set label and clean it up
+                            songs_text = set_content.text.replace(label_text, '').strip()
+                            songs_text = ', '.join([s.strip() for s in songs_text.split(',')])
+                            # Remove any tabs or multiple spaces
+                            songs_text = ' '.join(songs_text.split())
+                            
                             if songs_text:
-                                setlist_text.append(f"{label.text}: {songs_text}")
+                                setlist_text.append(f"{label_text}: {songs_text}")
                                 # Split songs and clean up the text
                                 set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
                                 all_songs.extend(set_songs)
@@ -111,7 +126,8 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
 async def ask_chatgpt(question):
     """Ask ChatGPT a question"""
     try:
-        response = await openai.ChatCompletion.acreate(
+        client = openai.AsyncOpenAI()
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a knowledgeable assistant focused on Phish-related information."},
