@@ -20,7 +20,8 @@ openai.api_key = OPENAI_API_KEY
 intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True
-intents.message_content = True
+intents.guilds = True
+intents.guild_messages = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 async def fetch_latest_setlist(band='phish', last_song_only=False):
@@ -110,8 +111,11 @@ async def ask(ctx, *, question):
 @bot.event
 async def on_message(message):
     """Handle messages that mention the bot"""
+    print(f"Received message: {message.content}")
+    
     # Ignore messages from the bot itself
     if message.author == bot.user:
+        print("Message was from bot, ignoring")
         return
 
     # Process commands normally
@@ -119,6 +123,7 @@ async def on_message(message):
 
     # Check if the bot was mentioned
     if bot.user in message.mentions:
+        print(f"Bot was mentioned! Content: {message.content}")
         content = message.content.lower()
         
         # Remove the mention from the content
