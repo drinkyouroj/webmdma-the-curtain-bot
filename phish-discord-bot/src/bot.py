@@ -56,55 +56,41 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                                 print(f"- {' '.join(div.get('class'))}")
                         return f"No recent setlist found for {band}."
                     
-                    # Extract date and venue
+                    # Extract date
                     print("Looking for date and venue...")
                     date_span = setlist_div.find('span', class_='setlist-date')
-                    venue_span = setlist_div.find('span', class_='setlist-venue')
                     
-                    if not date_span or not venue_span:
-                        print("Couldn't find date/venue spans. Available span classes:")
-                        all_spans = setlist_div.find_all('span')
-                        for span in all_spans:
-                            if span.get('class'):
-                                print(f"- {' '.join(span.get('class'))}")
-                            print(f"  Content: {span.text.strip()}")
+                    if not date_span:
+                        print("Couldn't find date span")
                         return f"Could not parse setlist information for {band}."
                     
-                    date = date_span.text.strip()
-                    venue = venue_span.text.strip()
-                
-                # Extract setlist content
-                print("Looking for setlist content...")
-                sets = setlist_div.find_all('p', class_='setlist-set')
-                if not sets:
-                    print("No 'setlist-set' class found, trying 'set' class...")
-                    sets = setlist_div.find_all('p', class_='set')  # try alternate class
+                    # Parse the date text which is in format "PHISH, DAY MM/DD/YYYY"
+                    date_text = date_span.text.strip()
+                    date = date_text.split(',')[1].strip() if ',' in date_text else date_text
                     
-                # Print all paragraph classes we find
-                print("Found these paragraph classes:")
-                all_paragraphs = setlist_div.find_all('p')
-                for p in all_paragraphs:
-                    if p.get('class'):
-                        print(f"- {' '.join(p.get('class'))}")
-                    print(f"  Content: {p.text.strip()}")
+                    # For now, we'll skip venue as it seems to be in a different format
+                    venue = ""  # We can enhance this later
+                
+                # Extract setlist content using set labels
+                print("Looking for setlist content...")
+                set_labels = setlist_div.find_all('span', class_='set-label')
                 
                 setlist_text = []
                 all_songs = []
                 
-                if not sets:
-                    # Try to find any song information
-                    songs_div = setlist_div.get_text(strip=True)
-                    if songs_div:
-                        setlist_text.append(songs_div)
-                        all_songs = [songs_div]
-                else:
-                    for set_num, set_content in enumerate(sets, 1):
-                        songs = set_content.get_text(strip=True)
-                        if songs:
-                            setlist_text.append(f"Set {set_num}: {songs}")
-                            # Split songs and clean up the text
-                            set_songs = [s.strip() for s in songs.split(',') if s.strip()]
-                            all_songs.extend(set_songs)
+                if set_labels:
+                    # For each set label (SET 1, SET 2, ENCORE, etc.)
+                    for label in set_labels:
+                        # The set label's parent element should contain the songs
+                        set_content = label.find_parent()
+                        if set_content:
+                            # Get all text after the set label
+                            songs_text = set_content.text.replace(label.text, '').strip()
+                            if songs_text:
+                                setlist_text.append(f"{label.text}: {songs_text}")
+                                # Split songs and clean up the text
+                                set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
+                                all_songs.extend(set_songs)
                 
                 if not setlist_text:
                     return f"Found setlist for {date} at {venue}, but couldn't parse the songs."
@@ -113,7 +99,8 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                     return f"The last song played was **{all_songs[-1]}** on {date} at {venue}"
                 
                 # Format the full response
-                return f"**{date} - {venue}**\n\n" + "\n".join(setlist_text)
+                header = f"**{date}**" if not venue else f"**{date} - {venue}**"
+                return f"{header}\n\n" + "\n".join(setlist_text)
                 
         return f"Error accessing {url}"
     
