@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import openai
 import aiohttp
 from datetime import datetime
+__version__ = "0.1"
 
 # Load environment variables
 load_dotenv()
