@@ -236,54 +236,98 @@ async def on_message(message):
                 await message.channel.send(response)
                 return
 
-        # Check for song query (e.g., "did they play Sand")
-        song_match = re.search(r'(?:did they |was |)(?:play |)(.*?)(?:\?|$| in set| in the encore)', content)
-        if song_match:
-            import difflib, string
-            song_query = song_match.group(1).strip().lower()
-            # Normalize: remove punctuation, lowercase, strip
-            def normalize(s):
-                return ''.join(c for c in s.lower() if c not in string.punctuation).strip()
-            # Phish abbreviation map
-            abbr = {
-                'yem': 'you enjoy myself',
-                '2001': 'also sprach zarathustra',
-                'moma': 'the moma dance',
-                'hood': 'harry hood',
-                'ctb': 'cars trucks buses',
-                'dwd': 'down with disease',
-                'tweeprise': 'tweezer reprise',
-                'tweezer reprise': 'tweezer reprise',
-            }
-            norm_query = normalize(song_query)
+        # Check for song query (e.g., "did they play Sand or Fuego?")
+        import difflib, string
+        # Extract quoted songs, or split by 'or', 'and', comma
+        quoted_songs = re.findall(r'"([^"]+)"|\'([^\']+)\'', content)
+        if quoted_songs:
+            song_queries = [q[0] or q[1] for q in quoted_songs]
+        else:
+            # Remove 'did they play', 'was', etc., then split
+            song_section = re.sub(r'(?:did they |was |were |did |play |played |in set.*|at that show.*|\?)', '', content)
+            song_queries = re.split(r'\s*(?:or|and|,|/|\&|\|)\s*', song_section)
+            song_queries = [s for s in song_queries if s.strip()]
+        # Normalize: remove punctuation, lowercase, strip
+        def normalize(s):
+            return ''.join(c for c in s.lower() if c not in string.punctuation).strip()
+        # Expanded Phish abbreviation map
+        abbr = {
+            'yem': 'you enjoy myself',
+            '2001': 'also sprach zarathustra',
+            'moma': 'the moma dance',
+            'hood': 'harry hood',
+            'ctb': 'cars trucks buses',
+            'dwd': 'down with disease',
+            'tweeprise': 'tweezer reprise',
+            'tweezer reprise': 'tweezer reprise',
+            'reba': 'reba',
+            'slave': 'slave to the traffic light',
+            'ghost': 'ghost',
+            'divided sky': 'the divided sky',
+            'bag': 'ac/dc bag',
+            'stash': 'stash',
+            'gin': 'bathtub gin',
+            'halleys': 'halley’s comet',
+            'halley': 'halley’s comet',
+            'mikes': "mike's song",
+            'groove': 'weekapaug groove',
+            'maze': 'maze',
+            'cities': 'cities',
+            'wolfmans': "wolfman's brother",
+            'wolfman': "wolfman's brother",
+            'fee': 'fee',
+            'tweezer': 'tweezer',
+            'piper': 'piper',
+            'antelope': 'run like an antelope',
+            'llama': 'llama',
+            'lizards': 'the lizards',
+        }
+        # Build all normalized song names for fuzzy matching
+        all_song_names = []
+        song_lookup = []  # tuple: (set_label, song, position)
+        for set_label, songs in setlist_data['setlist_dict'].items():
+            for idx, song in enumerate([s.strip() for s in songs.split(',') if s.strip()]):
+                norm_song = normalize(song)
+                all_song_names.append(norm_song)
+                song_lookup.append((set_label, song, idx+1))
+        responses = []
+        for query in song_queries:
+            norm_query = normalize(query)
             expanded_query = abbr.get(norm_query, norm_query)
-            found = False
-            best_match = None
-            for set_label, songs in setlist_data['setlist_dict'].items():
-                for song in songs.split(','):
-                    song_norm = normalize(song)
-                    # Exact, abbreviation, or fuzzy match
-                    if (
-                        expanded_query == song_norm or
-                        expanded_query in song_norm or
-                        song_norm in expanded_query or
-                        difflib.SequenceMatcher(None, expanded_query, song_norm).ratio() > 0.8
-                    ):
-                        await message.channel.send(f"Yes, '{song.strip()}' was played in {set_label} on {setlist_data['date']}{' at ' + setlist_data['venue'] if setlist_data['venue'] else ''}.")
-                        found = True
-                        break
-                if found:
-                    break
-            if not found:
+            found = []
+            for set_label, song, pos in song_lookup:
+                # Match: exact, abbreviation, substring, or fuzzy
+                if (
+                    expanded_query == normalize(song)
+                    or expanded_query in normalize(song)
+                    or normalize(song) in expanded_query
+                    or difflib.SequenceMatcher(None, expanded_query, normalize(song)).ratio() > 0.8
+                ):
+                    found.append((set_label, song, pos))
+            if found:
+                # Group by set
+                sets = {}
+                for set_label, song, pos in found:
+                    sets.setdefault(set_label, []).append(pos)
+                details = []
+                for set_label, positions in sets.items():
+                    pos_str = ', '.join(str(p) for p in positions)
+                    if len(positions) == 1:
+                        details.append(f"{set_label} (song #{positions[0]})")
+                    else:
+                        details.append(f"{set_label} (songs #{pos_str})")
+                responses.append(f"Yes, '{found[0][1]}' was played in {', '.join(details)} on {setlist_data['date']}{' at ' + setlist_data['venue'] if setlist_data['venue'] else ''}.")
+            else:
                 # Suggest closest match
-                all_song_names = [normalize(song) for songs in setlist_data['setlist_dict'].values() for song in songs.split(',')]
                 close = difflib.get_close_matches(expanded_query, all_song_names, n=1, cutoff=0.6)
                 if close:
                     suggestion = close[0].title()
-                    await message.channel.send(f"No, but did you mean '{suggestion}'?")
+                    responses.append(f"No, but did you mean '{suggestion}'?")
                 else:
-                    await message.channel.send(f"No, '{song_query.title()}' wasn't played in the latest show.")
-            return
+                    responses.append(f"No, '{query.title()}' wasn't played in the latest show.")
+        for resp in responses:
+            await message.channel.send(resp)
+        return
 
         # Default to showing full setlist
         await message.channel.send(setlist_data['formatted_text'])
