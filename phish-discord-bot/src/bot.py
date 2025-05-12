@@ -31,43 +31,69 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
         band (str): The band to fetch setlist for ('phish', 'trey', 'mike', etc.)
         last_song_only (bool): Whether to return only the last song
     """
-    base_url = 'https://phish.net/setlists/'
-    url = f'{base_url}{band}/' if band else base_url
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                html = await response.text()
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                # Find the most recent setlist
-                setlist_div = soup.find('div', class_='setlist')
-                if not setlist_div:
-                    return "No recent setlist found."
-                
-                # Extract date and venue
-                date = setlist_div.find('span', class_='setlist-date').text.strip()
-                venue = setlist_div.find('span', class_='setlist-venue').text.strip()
+    try:
+        base_url = 'https://phish.net/setlists/'
+        url = f'{base_url}{band}/' if band else base_url
+        print(f"Fetching setlist from: {url}")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # Find the most recent setlist
+                    setlist_div = soup.find('div', class_='setlist')
+                    if not setlist_div:
+                        return f"No recent setlist found for {band}."
+                    
+                    # Extract date and venue
+                    date_span = setlist_div.find('span', class_='setlist-date')
+                    venue_span = setlist_div.find('span', class_='setlist-venue')
+                    
+                    if not date_span or not venue_span:
+                        return f"Could not parse setlist information for {band}."
+                    
+                    date = date_span.text.strip()
+                    venue = venue_span.text.strip()
                 
                 # Extract setlist content
-                sets = setlist_div.find_all('p', class_='set')
+                sets = setlist_div.find_all('p', class_='setlist-set')
+                if not sets:
+                    sets = setlist_div.find_all('p', class_='set')  # try alternate class
+                
                 setlist_text = []
                 all_songs = []
                 
-                for set_num, set_content in enumerate(sets, 1):
-                    songs = set_content.get_text(strip=True)
-                    if songs:
-                        setlist_text.append(f"Set {set_num}: {songs}")
-                        # Split songs and clean up the text
-                        set_songs = [s.strip() for s in songs.split(',') if s.strip()]
-                        all_songs.extend(set_songs)
+                if not sets:
+                    # Try to find any song information
+                    songs_div = setlist_div.get_text(strip=True)
+                    if songs_div:
+                        setlist_text.append(songs_div)
+                        all_songs = [songs_div]
+                else:
+                    for set_num, set_content in enumerate(sets, 1):
+                        songs = set_content.get_text(strip=True)
+                        if songs:
+                            setlist_text.append(f"Set {set_num}: {songs}")
+                            # Split songs and clean up the text
+                            set_songs = [s.strip() for s in songs.split(',') if s.strip()]
+                            all_songs.extend(set_songs)
+                
+                if not setlist_text:
+                    return f"Found setlist for {date} at {venue}, but couldn't parse the songs."
                 
                 if last_song_only and all_songs:
                     return f"The last song played was **{all_songs[-1]}** on {date} at {venue}"
                 
                 # Format the full response
                 return f"**{date} - {venue}**\n\n" + "\n".join(setlist_text)
+                
+        return f"Error accessing {url}"
     
-    return "Error fetching setlist information."
+    except Exception as e:
+        print(f"Error fetching setlist: {str(e)}")
+        return f"Error fetching setlist information for {band}. Please try again later."
 
 async def ask_chatgpt(question):
     """Ask ChatGPT a question"""
