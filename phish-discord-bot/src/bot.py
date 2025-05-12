@@ -111,8 +111,9 @@ async def fetch_latest_setlist(band='phish', last_song_only=False, return_raw=Fa
                     # For each label, extract the text until the next label or end
                     for i, match in enumerate(label_matches):
                         label_text = match.group(1).strip()
-                        # Normalize set label capitalization ("SET 1" -> "Set 1", "ENCORE" -> "Encore")
-                        norm_label = label_text.title()
+                        # Normalize set label capitalization and strip trailing colons
+                        label_clean = label_text.rstrip(':')
+                        norm_label = label_clean.title()
                         if norm_label in setlist_dict:
                             continue  # Only first occurrence of each set label
                         start = match.end()
@@ -121,6 +122,8 @@ async def fetch_latest_setlist(band='phish', last_song_only=False, return_raw=Fa
                         songs_html = full_text[start:end]
                         raw = re.sub('<.*?>', '', songs_html)
                         raw = raw.replace('&gt;', '>').replace('&amp;', '&')
+                        # Remove any leading colon and whitespace
+                        raw = raw.lstrip(':').strip()
                         # Split songs on commas, arrows (->), or greater-than (>)
                         parts = [s.strip() for s in re.split(r'\s*->\s*|\s*>\s*|,\s*', raw) if s.strip()]
                         # Reconstruct songs text
