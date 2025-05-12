@@ -40,27 +40,53 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
             async with session.get(url) as response:
                 if response.status == 200:
                     html = await response.text()
+                    print("Got HTML response, looking for setlist...")
                     soup = BeautifulSoup(html, 'html.parser')
                     
                     # Find the most recent setlist
                     setlist_div = soup.find('div', class_='setlist')
                     if not setlist_div:
+                        # Try to find any div that might contain setlist info
+                        print("No div with class 'setlist' found. Looking for alternatives...")
+                        # Print all div classes we find
+                        all_divs = soup.find_all('div')
+                        print("Found these div classes:")
+                        for div in all_divs:
+                            if div.get('class'):
+                                print(f"- {' '.join(div.get('class'))}")
                         return f"No recent setlist found for {band}."
                     
                     # Extract date and venue
+                    print("Looking for date and venue...")
                     date_span = setlist_div.find('span', class_='setlist-date')
                     venue_span = setlist_div.find('span', class_='setlist-venue')
                     
                     if not date_span or not venue_span:
+                        print("Couldn't find date/venue spans. Available span classes:")
+                        all_spans = setlist_div.find_all('span')
+                        for span in all_spans:
+                            if span.get('class'):
+                                print(f"- {' '.join(span.get('class'))}")
+                            print(f"  Content: {span.text.strip()}")
                         return f"Could not parse setlist information for {band}."
                     
                     date = date_span.text.strip()
                     venue = venue_span.text.strip()
                 
                 # Extract setlist content
+                print("Looking for setlist content...")
                 sets = setlist_div.find_all('p', class_='setlist-set')
                 if not sets:
+                    print("No 'setlist-set' class found, trying 'set' class...")
                     sets = setlist_div.find_all('p', class_='set')  # try alternate class
+                    
+                # Print all paragraph classes we find
+                print("Found these paragraph classes:")
+                all_paragraphs = setlist_div.find_all('p')
+                for p in all_paragraphs:
+                    if p.get('class'):
+                        print(f"- {' '.join(p.get('class'))}")
+                    print(f"  Content: {p.text.strip()}")
                 
                 setlist_text = []
                 all_songs = []
