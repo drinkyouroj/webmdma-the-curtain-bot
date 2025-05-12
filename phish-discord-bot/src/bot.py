@@ -24,12 +24,16 @@ intents.guilds = True
 intents.guild_messages = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-async def fetch_latest_setlist(band='phish', last_song_only=False):
+async def fetch_latest_setlist(band='phish', last_song_only=False, return_raw=False):
     """Fetch the most recent setlist from phish.net
     
     Args:
         band (str): The band to fetch setlist for ('phish', 'trey', 'mike', etc.)
         last_song_only (bool): Whether to return only the last song
+        return_raw (bool): If True, return raw data dict instead of formatted string
+    Returns:
+        str: Formatted setlist text if return_raw is False
+        dict: Raw setlist data if return_raw is True
     """
     try:
         base_url = 'https://phish.net/setlists/'
@@ -122,13 +126,24 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                 
                 # Format the full response
                 header = f"**{date}**" if not venue else f"**{date} - {venue}**"
-                return f"{header}\n\n" + "\n".join(setlist_text)
+                formatted_text = f"{header}\n\n" + "\n".join(setlist_text)
                 
-        return f"Error accessing {url}"
+                if return_raw:
+                    return {
+                        'date': date,
+                        'venue': venue,
+                        'setlist_dict': setlist_dict,
+                        'all_songs': all_songs,
+                        'formatted_text': formatted_text
+                    }
+                return formatted_text
+                
+        return f"Error accessing {url}" if not return_raw else None
     
     except Exception as e:
         print(f"Error fetching setlist: {str(e)}")
-        return f"Error fetching setlist information for {band}. Please try again later."
+        error_msg = f"Error fetching setlist information for {band}. Please try again later."
+        return error_msg if not return_raw else None
 
 async def ask_chatgpt(question):
     """Ask ChatGPT a question"""
@@ -191,28 +206,52 @@ async def on_message(message):
         # Remove the mention from the content
         content = content.replace(f'<@{bot.user.id}>', '').strip()
         
-        # Check for setlist/show queries
-        if any(word in content for word in ['setlist', 'set', 'show']):
-            # Try to identify the band
-            band = 'phish'  # default to Phish
-            if 'trey' in content:
-                band = 'trey'
-            elif 'mike' in content:
-                band = 'mike'
-            elif 'tab' in content:
-                band = 'tab'
+        # Try to identify the band
+        band = 'phish'  # default to Phish
+        if 'trey' in content:
+            band = 'trey'
+        elif 'mike' in content:
+            band = 'mike'
+        elif 'tab' in content:
+            band = 'tab'
+        
+        # Get the setlist data
+        setlist_data = await fetch_latest_setlist(band=band, return_raw=True)
+        if not setlist_data:
+            await message.channel.send(f"Sorry, I couldn't fetch the setlist for {band}.")
+            return
+
+        # Check for specific set query (e.g., "what was set 2" or "encore")
+        import re
+        set_match = re.search(r'(?:what was |show me |)(?:the |)(set\s*[12]|encore)', content)
+        if set_match:
+            requested_set = set_match.group(1).upper().replace(' ', '')
+            # Normalize set names (SET1 -> SET 1)
+            if requested_set.startswith('SET'):
+                requested_set = f"SET {requested_set[3:]}"
             
-            # Check if it's a last song query
-            if any(phrase in content for phrase in ['last song', 'latest song', 'most recent song']):
-                await message.channel.send(await fetch_latest_setlist(band=band, last_song_only=True))
-            else:
-                await message.channel.send(await fetch_latest_setlist(band=band))
-        elif any(phrase in content for phrase in ['last song', 'latest song', 'most recent song']):
-            await message.channel.send(await fetch_latest_setlist(last_song_only=True))
-        else:
-            # Treat as a general question for ChatGPT
-            response = await ask_chatgpt(content)
-            await message.channel.send(response)
+            if requested_set in setlist_data['setlist_dict']:
+                response = f"**{setlist_data['date']}{' - ' + setlist_data['venue'] if setlist_data['venue'] else ''}**\n\n"
+                response += f"{requested_set}: {setlist_data['setlist_dict'][requested_set]}"
+                await message.channel.send(response)
+                return
+
+        # Check for song query (e.g., "did they play Sand")
+        song_match = re.search(r'(?:did they |was |)(?:play |)(.*?)(?:\?|$| in set| in the encore)', content)
+        if song_match:
+            song_query = song_match.group(1).strip().lower()
+            found = False
+            for set_label, songs in setlist_data['setlist_dict'].items():
+                if any(song_query in song.lower() for song in songs.split(',')):
+                    await message.channel.send(f"Yes, '{song_query.title()}' was played in {set_label} on {setlist_data['date']}{' at ' + setlist_data['venue'] if setlist_data['venue'] else ''}.")
+                    found = True
+                    break
+            if not found:
+                await message.channel.send(f"No, '{song_query.title()}' wasn't played in the latest show.")
+            return
+
+        # Default to showing full setlist
+        await message.channel.send(setlist_data['formatted_text'])
 
 # Run the bot
 if __name__ == "__main__":
