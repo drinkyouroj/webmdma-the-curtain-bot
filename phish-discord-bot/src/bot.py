@@ -239,15 +239,50 @@ async def on_message(message):
         # Check for song query (e.g., "did they play Sand")
         song_match = re.search(r'(?:did they |was |)(?:play |)(.*?)(?:\?|$| in set| in the encore)', content)
         if song_match:
+            import difflib, string
             song_query = song_match.group(1).strip().lower()
+            # Normalize: remove punctuation, lowercase, strip
+            def normalize(s):
+                return ''.join(c for c in s.lower() if c not in string.punctuation).strip()
+            # Phish abbreviation map
+            abbr = {
+                'yem': 'you enjoy myself',
+                '2001': 'also sprach zarathustra',
+                'moma': 'the moma dance',
+                'hood': 'harry hood',
+                'ctb': 'cars trucks buses',
+                'dwd': 'down with disease',
+                'tweeprise': 'tweezer reprise',
+                'tweezer reprise': 'tweezer reprise',
+            }
+            norm_query = normalize(song_query)
+            expanded_query = abbr.get(norm_query, norm_query)
             found = False
+            best_match = None
             for set_label, songs in setlist_data['setlist_dict'].items():
-                if any(song_query in song.lower() for song in songs.split(',')):
-                    await message.channel.send(f"Yes, '{song_query.title()}' was played in {set_label} on {setlist_data['date']}{' at ' + setlist_data['venue'] if setlist_data['venue'] else ''}.")
-                    found = True
+                for song in songs.split(','):
+                    song_norm = normalize(song)
+                    # Exact, abbreviation, or fuzzy match
+                    if (
+                        expanded_query == song_norm or
+                        expanded_query in song_norm or
+                        song_norm in expanded_query or
+                        difflib.SequenceMatcher(None, expanded_query, song_norm).ratio() > 0.8
+                    ):
+                        await message.channel.send(f"Yes, '{song.strip()}' was played in {set_label} on {setlist_data['date']}{' at ' + setlist_data['venue'] if setlist_data['venue'] else ''}.")
+                        found = True
+                        break
+                if found:
                     break
             if not found:
-                await message.channel.send(f"No, '{song_query.title()}' wasn't played in the latest show.")
+                # Suggest closest match
+                all_song_names = [normalize(song) for songs in setlist_data['setlist_dict'].values() for song in songs.split(',')]
+                close = difflib.get_close_matches(expanded_query, all_song_names, n=1, cutoff=0.6)
+                if close:
+                    suggestion = close[0].title()
+                    await message.channel.send(f"No, but did you mean '{suggestion}'?")
+                else:
+                    await message.channel.send(f"No, '{song_query.title()}' wasn't played in the latest show.")
             return
 
         # Default to showing full setlist
