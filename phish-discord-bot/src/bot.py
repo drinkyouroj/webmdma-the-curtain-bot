@@ -76,36 +76,31 @@ async def fetch_latest_setlist(band='phish', last_song_only=False):
                         if '@' in venue_text:
                             venue = venue_text.split('@')[1].strip()
                 
-                # Extract setlist content using set labels
+                # Extract setlist content: process each <p> with a set-label only once
                 print("Looking for setlist content...")
-                set_labels = setlist_div.find_all('span', class_='set-label')
-                
                 setlist_text = []
                 all_songs = []
-                processed_sets = set()  # Keep track of which sets we've processed
+                set_paragraphs = setlist_div.find_all('p')
+                for p in set_paragraphs:
+                    label_span = p.find('span', class_='set-label')
+                    if label_span:
+                        label_text = label_span.text.strip()
+                        # The rest of the text in <p> after the set label is the setlist
+                        full_text = p.get_text(separator=' ', strip=True)
+                        # Remove the label from the text
+                        songs_text = full_text.replace(label_text, '', 1).strip(' :')
+                        # Clean up whitespace and commas
+                        songs_text = ', '.join([s.strip() for s in songs_text.split(',')])
+                        songs_text = ' '.join(songs_text.split())
+                        if songs_text:
+                            setlist_text.append(f"{label_text}: {songs_text}")
+                            set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
+                            all_songs.extend(set_songs)
                 
-                if set_labels:
-                    # For each set label (SET 1, SET 2, ENCORE, etc.)
-                    for label in set_labels:
-                        label_text = label.text.strip()
-                        if label_text in processed_sets:
-                            continue  # Skip if we've already processed this set
-                        
-                        processed_sets.add(label_text)
-                        # The set label's parent element should contain the songs
-                        set_content = label.find_parent()
-                        if set_content:
-                            # Get all text after the set label and clean it up
-                            songs_text = set_content.text.replace(label_text, '').strip()
-                            songs_text = ', '.join([s.strip() for s in songs_text.split(',')])
-                            # Remove any tabs or multiple spaces
-                            songs_text = ' '.join(songs_text.split())
-                            
-                            if songs_text:
-                                setlist_text.append(f"{label_text}: {songs_text}")
-                                # Split songs and clean up the text
-                                set_songs = [s.strip() for s in songs_text.split(',') if s.strip()]
-                                all_songs.extend(set_songs)
+                # Remove duplicates while preserving order
+                seen = set()
+                setlist_text = [x for x in setlist_text if not (x in seen or seen.add(x))]
+                all_songs = [x for i, x in enumerate(all_songs) if x not in all_songs[:i]]
                 
                 if not setlist_text:
                     return f"Found setlist for {date} at {venue}, but couldn't parse the songs."
